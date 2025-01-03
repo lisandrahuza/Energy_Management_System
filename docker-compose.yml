@@ -1,0 +1,238 @@
+services:
+  traefik:
+    image: traefik:v2.8
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"  # EntryPoint pentru acces pe portul 80
+      - "--log.level=DEBUG"
+    ports:
+      - "80:80"        # Portul pentru web
+      - "8080:8080"    # Portul pentru dashboard-ul Traefik
+    
+
+    depends_on:
+      - db_user
+      - db_device
+      - db_measurements
+      - db_chat
+      - user-app
+      - device-app
+      - measurements-app
+      - chat-app
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"  # Permite Traefik să interacționeze cu Docker
+    networks:
+      - mynetwork
+
+  rabbitmq:
+    image: rabbitmq:management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"  # Port pentru aplicații
+      - "15672:15672" # Port pentru UI de management
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - mynetwork
+
+  python-app:
+    build:
+      context: ./citire
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+    networks:
+      - mynetwork
+    volumes:
+      - ./citire:/app/citire
+    restart: "no"
+    profiles:
+      - manual-start
+
+    
+
+  db_measurements:
+    image: postgres
+    container_name: db_measurements
+    environment:
+      POSTGRES_DB: measurementsdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5002:5432"
+    volumes:
+      - db_measurements_data:/var/lib/postgresql/data
+    networks:
+      - mynetwork
+
+  measurements-app:
+    build:
+      context: ./Monitoring_Communication
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db_measurements:5432/measurementsdb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+    depends_on:
+      - db_measurements
+      - rabbitmq
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.measurements-app.rule=Host(`localhost`) && PathPrefix(`/measurements`)"
+      - "traefik.http.services.measurements-app.loadbalancer.server.port=8082"
+      - "traefik.http.routers.measurements-app.entrypoints=web"
+
+    networks:
+      - mynetwork
+
+  db_chat:
+    image: postgres
+    container_name: db_chat
+    environment:
+      POSTGRES_DB: chatdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5003:5432"
+    volumes:
+      - db_chat_data:/var/lib/postgresql/data
+    networks:
+      - mynetwork
+
+  chat-app:
+    build:
+      context: ./ChatM
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db_chat:5432/chatdb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+    depends_on:
+      - db_chat
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.chat-app.rule=Host(`localhost`) && PathPrefix(`/chats`)"
+      - "traefik.http.services.chat-app.loadbalancer.server.port=8083"
+      - "traefik.http.routers.chat-app.entrypoints=web"
+
+    networks:
+      - mynetwork
+
+  db_device:
+    image: postgres
+    container_name: db_device
+    environment:
+      POSTGRES_DB: devicedb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5001:5432"
+    volumes:
+      - db_device_data:/var/lib/postgresql/data
+    networks:
+      - mynetwork
+
+  device-app:
+    build:
+      context: ./Device
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db_device:5432/devicedb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+    deploy:
+      replicas: 2
+    depends_on:
+      - db_device
+      - rabbitmq
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.device-app.rule=PathPrefix(`/devices`)"
+      - "traefik.http.services.device-app.loadbalancer.server.port=8081"
+    networks:
+      - mynetwork
+
+  db_user:
+    image: postgres
+    container_name: db_user
+    environment:
+      POSTGRES_DB: userdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5000:5432"
+    volumes:
+      - db_user_data:/var/lib/postgresql/data
+    networks:
+      - mynetwork
+
+  user-app:
+    build:
+      context: ./User
+      dockerfile: Dockerfile
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db_user:5432/userdb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+    deploy:
+      replicas: 2
+    depends_on:
+      - db_user
+      - device-app
+      - measurements-app
+      - chat-app
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.user-app.rule=Host(`localhost`) && PathPrefix(`/users`)"  # Rutele pentru aplicație
+      - "traefik.http.services.user-app.loadbalancer.server.port=8080"
+      - "traefik.http.routers.user-app.entrypoints=web"
+    networks:
+      - mynetwork
+
+  web:
+    build:
+      context: ./Interfata
+      dockerfile: Dockerfile
+    environment:
+      - MEASUREMENTS=measurements-app
+      - DEVICE=device-app
+      - USER=user-app
+      - CHAT=chat-app
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.web.rule=Host(`localhost`)"  # Rutele pentru interfața web
+      - "traefik.http.services.web.loadbalancer.server.port=3000"
+      - "traefik.http.routers.web.entrypoints=web"  # Asigură-te că web entrypoint-ul este folosit
+    depends_on:
+      - user-app
+      - device-app
+      - measurements-app
+      - chat-app
+    volumes:
+      - ./Interfata/nginx.conf:/etc/nginx/nginx.conf
+    networks:
+      - mynetwork
+
+volumes:
+  rabbitmq_data:
+    driver: local
+  python_data:
+    driver: local
+  db_measurements_data:
+    driver: local
+  db_chat_data:
+    driver: local
+  db_device_data:
+    driver: local
+  db_user_data:
+    driver: local
+
+networks:
+  mynetwork:
+    driver: bridge
+

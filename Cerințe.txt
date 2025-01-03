@@ -1,0 +1,37 @@
+### Cerințe
+
+1. **Implementați un Microserviciu de Monitorizare și Comunicare pentru Sistemul de Management al Energiei.**
+   
+   Microserviciul se bazează pe un middleware de broker de mesaje, care colectează date de la dispozitivele de măsurare inteligentă, procesează datele pentru a calcula consumul de energie pe oră și le stochează în baza de date a Microserviciului de Monitorizare și Comunicare.
+
+   Sincronizarea între bazele de date ale Microserviciului de Management al Dispozitivelor și noul Microserviciu de Monitorizare și Comunicare se realizează printr-un sistem bazat pe evenimente care utilizează un topic pentru modificările dispozitivelor (trimite informațiile despre dispozitive printr-o coadă către Microserviciul de Monitorizare și Comunicare).
+
+2. **O aplicație Simulator de Dispozitive de Măsurare Inteligentă va fi implementată ca Producător de Mesaje.**
+   
+   Aceasta va simula un contor inteligent citind date de energie dintr-un fișier `sensor.csv` (i.e., o valoare la fiecare 10 minute) și va trimite datele sub forma `<timestamp, device_id, measurement_value>` către Brokerul de Mesaje (i.e., o coadă). Timpul (`timestamp`) este preluat de la ceasul local, iar `device_id` este unic pentru fiecare instanță a Simulatorului de Dispozitive de Măsurare Inteligentă și corespunde `device_id`-ului unui utilizator din baza de date (așa cum este definit în Tema 1). Simulatorul de dispozitive ar trebui să fie dezvoltat ca o aplicație independentă (i.e., aplicație desktop). Fișierul `sensor.csv` poate fi descărcat de la [https://dsrl.eu/courses/sd/materials/sensor.csv](https://dsrl.eu/courses/sd/materials/sensor.csv).
+
+3. **Măsurătorile sunt trimise în coadă folosind următorul format JSON:**
+
+```json
+{
+  "timestamp": 1570654800000,
+  "device_id": "5c2494a3-1140-4c7a-991a-a1a2561c6bc2",
+  "measurement_value": 0.1
+}
+```
+
+4. **Microserviciul de Monitorizare și Comunicare va avea o componentă Consumator de Mesaje care:**
+   
+   - Va procesa măsurătorile pentru a calcula consumul total de energie pe oră și va stoca aceste date în baza de date.
+   - Dacă consumul total de energie calculat pe oră depășește valoarea maximă definită a dispozitivului (așa cum este definit în Tema 1), va notifica asincron utilizatorul pe interfața sa web.
+
+#### 1.1. Cerințe:
+   - Middleware-ul orientat pe mesaje permite Simulatorului de Dispozitive de Măsurare Inteligentă să trimită tuple de date în format JSON.
+   - Componenta consumator de mesaje a microserviciului procesează fiecare mesaj și notifică asincron aplicația client folosind WebSocket.
+   - Valorile de energie pe oră vor fi salvate de componenta consumator în baza de date de Monitorizare.
+
+#### 1.2. Tehnologii de implementare:
+   - Utilizați următoarele tehnologii: **RabbitMQ**, **WebSocket**.
+
+#### 1.3. Cerințe non-funcționale:
+   - Componenta Consumator va fi integrată în Microserviciul de Monitorizare și Comunicare.
